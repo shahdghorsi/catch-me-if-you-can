@@ -1,0 +1,1111 @@
+{% extends "base.html" %}
+
+{% block title %}Catch Me If You Can{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<style>
+    .main-content { padding: 0; max-width: 100%; }
+    .header { display: none; }
+    .footer { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="app-container">
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Status Bar -->
+    <div class="status-bar" id="statusBar">
+        <div class="status-toggle" id="statusToggle">
+            <span class="status-emoji" id="statusEmoji">💬</span>
+            <span class="status-text" id="statusText">Set your status...</span>
+            <span class="status-arrow">▾</span>
+        </div>
+        <div class="status-panel" id="statusPanel">
+            <div class="status-input-wrap">
+                <input type="text" class="status-input" id="statusInput" placeholder="What are you up to?" maxlength="30">
+                <button class="status-save" id="statusSave">✓</button>
+            </div>
+            <div class="status-suggestions" id="statusSuggestions">
+                <button class="status-suggestion" data-status="☕ Grabbing coffee">☕ Grabbing coffee</button>
+                <button class="status-suggestion" data-status="🍽️ At lunch">🍽️ At lunch</button>
+                <button class="status-suggestion" data-status="💻 Heads down">💻 Heads down</button>
+                <button class="status-suggestion" data-status="🚶 On the move">🚶 On the move</button>
+                <button class="status-suggestion" data-status="📞 In a call">📞 In a call</button>
+                <button class="status-suggestion" data-status="🎧 Music mode">🎧 Music mode</button>
+            </div>
+            <button class="status-clear" id="statusClear">Clear status</button>
+        </div>
+    </div>
+
+    <!-- Vibe selector (bottom) -->
+    <div class="vibe-bar" id="vibeBar">
+        <button class="vibe-btn active" data-vibe="available">
+            <span class="vibe-glow green"></span>
+            <span>Available</span>
+        </button>
+        <button class="vibe-btn" data-vibe="quick_chat">
+            <span class="vibe-glow yellow"></span>
+            <span>Quick Chat</span>
+        </button>
+        <button class="vibe-btn" data-vibe="focused">
+            <span class="vibe-glow gray"></span>
+            <span>Focused</span>
+        </button>
+    </div>
+
+    <!-- Tag overlay -->
+    <div class="tag-overlay" id="tagOverlay">
+        <div class="tag-content">
+            <div class="tag-emoji" id="tagEmoji">⚡</div>
+            <div class="tag-message" id="tagMessage">On my way!</div>
+            <div class="tag-timer" id="tagTimer">5:00</div>
+        </div>
+    </div>
+
+    <!-- Connection celebration -->
+    <div class="celebration-overlay" id="celebrationOverlay">
+        <div class="celebration-content">
+            <div class="celebration-emoji">🎉</div>
+            <div class="celebration-text">Connected!</div>
+        </div>
+    </div>
+
+    <!-- User info bubble -->
+    <div class="user-bubble" id="userBubble">
+        <div class="bubble-avatar" id="bubbleAvatar">😀</div>
+        <div class="bubble-name" id="bubbleName">You</div>
+        <div class="bubble-action">
+            <button class="join-btn" id="joinBtn">⚡ Join in 5 min</button>
+        </div>
+    </div>
+
+    <!-- Lock Screen Widget -->
+    <div class="energy-widget" id="energyWidget">
+        <div class="widget-collapsed" id="widgetCollapsed">
+            <div class="widget-header">
+                <span class="widget-icon">⚡</span>
+                <span class="widget-title">Office Vibes</span>
+            </div>
+            <div class="widget-dots" id="widgetDots"></div>
+            <div class="widget-summary" id="widgetSummary">Quiet</div>
+        </div>
+        <div class="widget-expanded" id="widgetExpanded">
+            <div class="widget-expand-header">
+                <span class="widget-expand-title">Office Energy</span>
+                <button class="widget-close" id="widgetClose">×</button>
+            </div>
+            <div class="widget-zones" id="widgetZones"></div>
+            <div class="widget-footer">
+                <span class="widget-time" id="widgetTime">Updated just now</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ============ CONFIG ============
+const PADDINGTON_CENTER = [51.5170, -0.1780];
+const MAP_ZOOM = 17;
+
+// Team colors for cross-team discovery
+const TEAM_COLORS = {
+    'Data Science': { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.2)', emoji: '🔬' },
+    'Data Products': { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.2)', emoji: '📦' },
+    'Data Platforms': { color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.2)', emoji: '⚙️' },
+    'Other': { color: '#64748b', bg: 'rgba(100, 116, 139, 0.2)', emoji: '🌐' }
+};
+
+// Heat Zone Types with visual styles
+const ZONE_STYLES = {
+    social: {
+        name: 'Social',
+        color: '#a855f7',      // Vibrant purple
+        glowColor: 'rgba(168, 85, 247, 0.4)',
+        icon: '🎉',
+        hotEmoji: '🔥',
+        warmEmoji: '⚡',
+        coldEmoji: '💤'
+    },
+    coffee: {
+        name: 'Coffee',
+        color: '#f59e0b',      // Warm orange
+        glowColor: 'rgba(245, 158, 11, 0.4)',
+        icon: '☕',
+        hotEmoji: '🔥',
+        warmEmoji: '⚡',
+        coldEmoji: '💤'
+    },
+    lunch: {
+        name: 'Lunch',
+        color: '#22c55e',      // Fresh green
+        glowColor: 'rgba(34, 197, 94, 0.4)',
+        icon: '🍽️',
+        hotEmoji: '🔥',
+        warmEmoji: '⚡',
+        coldEmoji: '💤'
+    },
+    focus: {
+        name: 'Focus',
+        color: '#3b82f6',      // Calm blue
+        glowColor: 'rgba(59, 130, 246, 0.3)',
+        icon: '💻',
+        hotEmoji: '🔥',
+        warmEmoji: '⚡',
+        coldEmoji: '💤'
+    }
+};
+
+// Paddington Heat Zones
+const HEAT_ZONES = [
+    { id: 'office', name: 'Office', lat: 51.5170, lng: -0.1780, type: 'focus', baseRadius: 50 },
+    { id: 'mad_bishop', name: 'Mad Bishop', lat: 51.5167, lng: -0.1769, type: 'social', baseRadius: 30 },
+    { id: 'victoria', name: 'The Victoria', lat: 51.5152, lng: -0.1743, type: 'social', baseRadius: 30 },
+    { id: 'starbucks', name: 'Starbucks', lat: 51.5155, lng: -0.1760, type: 'coffee', baseRadius: 25 },
+    { id: 'costa', name: 'Costa', lat: 51.5165, lng: -0.1735, type: 'coffee', baseRadius: 25 },
+    { id: 'pret', name: 'Pret', lat: 51.5160, lng: -0.1765, type: 'lunch', baseRadius: 25 },
+    { id: 'wagamama', name: 'Wagamama', lat: 51.5175, lng: -0.1788, type: 'lunch', baseRadius: 30 },
+    { id: 'leon', name: 'Leon', lat: 51.5162, lng: -0.1758, type: 'lunch', baseRadius: 25 }
+];
+
+// ============ STATE ============
+let map = null;
+let socket = null;
+let currentUserId = null;
+let currentUser = null;
+let markers = {};
+let heatZones = {};
+let tagLines = {};
+let timerInterval = null;
+
+const urlParams = new URLSearchParams(window.location.search);
+currentUserId = urlParams.get('user_id');
+
+// ============ INIT ============
+document.addEventListener('DOMContentLoaded', () => {
+    if (!currentUserId) {
+        window.location.href = '/checkin';
+        return;
+    }
+    initMap();
+    initHeatZones();
+    initSocket();
+    initVibeSelector();
+    requestLocation();
+});
+
+// ============ MAP ============
+function initMap() {
+    map = L.map('map', {
+        zoomControl: false,
+        attributionControl: false
+    }).setView(PADDINGTON_CENTER, MAP_ZOOM);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 20
+    }).addTo(map);
+}
+
+// ============ ENERGY ZONES ============
+function initHeatZones() {
+    HEAT_ZONES.forEach(zone => {
+        const style = ZONE_STYLES[zone.type];
+
+        // Create outer glow circle (pulses with activity)
+        const glowCircle = L.circle([zone.lat, zone.lng], {
+            radius: zone.baseRadius,
+            color: 'transparent',
+            fillColor: style.color,
+            fillOpacity: 0.08,
+            weight: 0,
+            className: `energy-zone energy-zone-${zone.type}`
+        }).addTo(map);
+
+        // Create inner core circle
+        const coreCircle = L.circle([zone.lat, zone.lng], {
+            radius: zone.baseRadius * 0.6,
+            color: style.color,
+            fillColor: style.color,
+            fillOpacity: 0.15,
+            weight: 2,
+            dashArray: '5, 5',
+            className: `energy-core energy-core-${zone.type}`
+        }).addTo(map);
+
+        heatZones[zone.id] = {
+            glowCircle,
+            coreCircle,
+            zone,
+            peopleInZone: [],
+            labelMarker: null
+        };
+    });
+}
+
+function updateHeatZones(people) {
+    // Find people in each zone
+    const zonePeople = {};
+    HEAT_ZONES.forEach(z => zonePeople[z.id] = []);
+
+    people.forEach(person => {
+        if (!person.latitude || !person.longitude) return;
+
+        // Find closest zone for this person
+        let closestZone = null;
+        let closestDist = Infinity;
+
+        HEAT_ZONES.forEach(zone => {
+            const distance = getDistance(person.latitude, person.longitude, zone.lat, zone.lng);
+            if (distance <= zone.baseRadius + 15 && distance < closestDist) {
+                closestDist = distance;
+                closestZone = zone.id;
+            }
+        });
+
+        if (closestZone) {
+            zonePeople[closestZone].push(person);
+        }
+    });
+
+    // Update each zone's appearance
+    Object.keys(heatZones).forEach(zoneId => {
+        const hz = heatZones[zoneId];
+        const peopleHere = zonePeople[zoneId];
+        const count = peopleHere.length;
+        const style = ZONE_STYLES[hz.zone.type];
+
+        // Calculate heat level
+        const heatLevel = count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : 3;
+
+        // Update glow radius (grows with people)
+        const glowMultiplier = 1 + (count * 0.12);
+        hz.glowCircle.setRadius(hz.zone.baseRadius * glowMultiplier);
+
+        // Update glow opacity and style
+        const glowOpacity = count === 0 ? 0.05 : 0.1 + (count * 0.05);
+        hz.glowCircle.setStyle({ fillOpacity: Math.min(glowOpacity, 0.35) });
+
+        // Update core circle
+        const coreOpacity = count === 0 ? 0.1 : 0.15 + (count * 0.05);
+        const coreWeight = count === 0 ? 1 : 2 + count;
+        hz.coreCircle.setStyle({
+            fillOpacity: Math.min(coreOpacity, 0.4),
+            weight: Math.min(coreWeight, 5),
+            dashArray: count >= 2 ? null : '5, 5'
+        });
+
+        // Remove old label
+        if (hz.labelMarker) {
+            map.removeLayer(hz.labelMarker);
+            hz.labelMarker = null;
+        }
+
+        // Create zone label with avatar cluster
+        const labelHtml = createZoneLabel(hz.zone, style, peopleHere, heatLevel);
+        const labelIcon = L.divIcon({
+            html: labelHtml,
+            className: 'energy-zone-label',
+            iconSize: [200, 80],
+            iconAnchor: [100, 40]
+        });
+
+        hz.labelMarker = L.marker([hz.zone.lat, hz.zone.lng], {
+            icon: labelIcon,
+            interactive: count > 0,
+            zIndexOffset: count > 0 ? 500 : -100
+        }).addTo(map);
+
+        // Add click handler for zones with people
+        if (count > 0) {
+            hz.labelMarker.on('click', () => showZonePopup(hz.zone, peopleHere));
+        }
+
+        // Add pulse animation to glow
+        const glowEl = hz.glowCircle.getElement();
+        if (glowEl) {
+            glowEl.classList.toggle('pulsing', count >= 2);
+            glowEl.classList.toggle('hot-pulse', count >= 4);
+        }
+
+        hz.peopleInZone = peopleHere;
+    });
+}
+
+function createZoneLabel(zone, style, people, heatLevel) {
+    const count = people.length;
+
+    // Temperature emoji
+    let tempEmoji = style.coldEmoji;
+    let tempClass = 'cold';
+    if (heatLevel >= 3) {
+        tempEmoji = style.hotEmoji;
+        tempClass = 'hot';
+    } else if (heatLevel >= 1) {
+        tempEmoji = style.warmEmoji;
+        tempClass = 'warm';
+    }
+
+    // Build avatar cluster HTML
+    let avatarCluster = '';
+    if (count > 0) {
+        const displayPeople = people.slice(0, 4);
+        const avatars = displayPeople.map((p, i) =>
+            `<span class="cluster-avatar" style="z-index: ${10-i}; margin-left: ${i > 0 ? '-8px' : '0'}">${p.avatar_emoji || '😀'}</span>`
+        ).join('');
+
+        avatarCluster = `<div class="avatar-cluster">${avatars}${count > 4 ? `<span class="cluster-more">+${count - 4}</span>` : ''}</div>`;
+    }
+
+    // Build label text
+    let labelText = '';
+    if (count === 0) {
+        labelText = `<span class="zone-label-name">${zone.name}</span>`;
+    } else if (count === 1) {
+        const firstName = people[0].name.split(' ')[0];
+        labelText = `<span class="zone-label-who">${firstName}</span> <span class="zone-label-at">at</span> <span class="zone-label-name">${zone.name}</span>`;
+    } else if (count === 2) {
+        const name1 = people[0].name.split(' ')[0];
+        const name2 = people[1].name.split(' ')[0];
+        labelText = `<span class="zone-label-who">${name1} & ${name2}</span> <span class="zone-label-at">at</span> <span class="zone-label-name">${zone.name}</span>`;
+    } else {
+        labelText = `<span class="zone-label-count">${count} people</span> <span class="zone-label-at">at</span> <span class="zone-label-name">${zone.name}</span>`;
+    }
+
+    return `
+        <div class="energy-label ${tempClass}" data-type="${zone.type}" style="--zone-color: ${style.color}">
+            <div class="energy-label-header">
+                <span class="zone-temp-indicator">${tempEmoji}</span>
+                <span class="zone-type-icon">${style.icon}</span>
+            </div>
+            ${avatarCluster}
+            <div class="zone-label-text">${labelText}</div>
+            ${count >= 2 ? '<div class="join-hint">Join the group!</div>' : ''}
+        </div>
+    `;
+}
+
+function getDistance(lat1, lng1, lat2, lng2) {
+    // Simple distance in meters (approximate for small distances)
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// ============ AVATAR MARKERS ============
+function createAvatarMarker(person, isMe = false) {
+    const vibeColors = {
+        'available': '#10b981',
+        'quick_chat': '#f59e0b',
+        'focused': '#64748b'
+    };
+
+    // Get team color (overrides vibe for border)
+    const team = person.team || 'Other';
+    const teamStyle = TEAM_COLORS[team] || TEAM_COLORS['Other'];
+    const teamColor = teamStyle.color;
+
+    const vibeColor = vibeColors[person.vibe] || vibeColors.available;
+    const size = isMe ? 56 : 46;
+    const glowSize = size + 20;
+
+    // Status bubble above head (includes team if no custom status)
+    const status = person.status || '';
+    const displayStatus = status || (team ? `${teamStyle.emoji} ${team}` : '');
+    const statusHtml = displayStatus ? `<div class="avatar-status-bubble" style="border-color: ${teamColor}">${displayStatus}</div>` : '';
+
+    // Team badge on avatar
+    const teamBadgeHtml = team ? `<div class="avatar-team-badge" style="background: ${teamColor}">${teamStyle.emoji}</div>` : '';
+
+    const html = `
+        <div class="avatar-marker ${isMe ? 'is-me' : ''}" style="--vibe-color: ${vibeColor}; --team-color: ${teamColor}">
+            ${statusHtml}
+            <div class="avatar-glow" style="width: ${glowSize}px; height: ${glowSize}px; background: radial-gradient(circle, ${teamColor} 0%, transparent 70%);"></div>
+            <div class="avatar-circle" style="width: ${size}px; height: ${size}px; border-color: ${teamColor};">
+                <span class="avatar-emoji">${person.avatar_emoji || '😀'}</span>
+            </div>
+            ${teamBadgeHtml}
+            ${isMe ? '<div class="avatar-me-indicator">YOU</div>' : ''}
+        </div>
+    `;
+
+    return L.divIcon({
+        html,
+        className: 'avatar-icon',
+        iconSize: [glowSize, glowSize + 35],
+        iconAnchor: [glowSize/2, glowSize/2 + 17]
+    });
+}
+
+function updateMarkers(people) {
+    const currentIds = new Set(people.map(p => p.id));
+
+    Object.keys(markers).forEach(id => {
+        if (!currentIds.has(parseInt(id))) {
+            map.removeLayer(markers[id]);
+            delete markers[id];
+        }
+    });
+
+    people.forEach(person => {
+        if (!person.latitude || !person.longitude) return;
+
+        const isMe = person.id === parseInt(currentUserId);
+        const icon = createAvatarMarker(person, isMe);
+
+        if (markers[person.id]) {
+            markers[person.id].setLatLng([person.latitude, person.longitude]);
+            markers[person.id].setIcon(icon);
+        } else {
+            const marker = L.marker([person.latitude, person.longitude], {
+                icon,
+                zIndexOffset: isMe ? 1000 : 0
+            }).addTo(map);
+
+            if (!isMe) {
+                marker.on('click', () => showUserBubble(person, marker));
+            }
+
+            markers[person.id] = marker;
+            animateDropIn(marker);
+        }
+
+        if (isMe) currentUser = person;
+    });
+
+    // Update heat zones based on people positions
+    updateHeatZones(people);
+}
+
+function animateDropIn(marker) {
+    const el = marker.getElement();
+    if (el) {
+        el.style.transform = 'translateY(-50px) scale(0)';
+        el.style.opacity = '0';
+        setTimeout(() => {
+            el.style.transition = 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+            el.style.transform = 'translateY(0) scale(1)';
+            el.style.opacity = '1';
+        }, 50);
+    }
+}
+
+// ============ TAG LINES ============
+function drawTagLine(tag) {
+    const tagger = tag.tagger;
+    const tagged = tag.tagged;
+    if (!tagger?.latitude || !tagged?.latitude) return;
+
+    const lineId = `${tag.id}`;
+    if (tagLines[lineId]) map.removeLayer(tagLines[lineId]);
+
+    const line = L.polyline([
+        [tagger.latitude, tagger.longitude],
+        [tagged.latitude, tagged.longitude]
+    ], {
+        color: '#818cf8',
+        weight: 3,
+        dashArray: '10, 10',
+        className: 'tag-line-animated'
+    }).addTo(map);
+
+    tagLines[lineId] = line;
+}
+
+function updateTagLines(tags) {
+    Object.values(tagLines).forEach(line => map.removeLayer(line));
+    tagLines = {};
+
+    tags.forEach(tag => {
+        drawTagLine(tag);
+        if (tag.tagger?.id === parseInt(currentUserId) || tag.tagged?.id === parseInt(currentUserId)) {
+            updateTagTimer(tag);
+        }
+    });
+
+    if (!tags.some(t => t.tagger?.id === parseInt(currentUserId) || t.tagged?.id === parseInt(currentUserId))) {
+        hideTagOverlay();
+    }
+}
+
+// ============ SOCKET ============
+function initSocket() {
+    socket = io();
+
+    socket.on('connect', () => {
+        socket.emit('register_user', { user_id: parseInt(currentUserId) });
+    });
+
+    socket.on('state_update', (data) => {
+        updateMarkers(data.people);
+        updateTagLines(data.tags);
+        updateWidget(data.people);
+    });
+
+    socket.on('user_dropped_in', (user) => {
+        if (navigator.vibrate) navigator.vibrate(50);
+    });
+
+    socket.on('tagged', (data) => {
+        if (data.tagged_id === parseInt(currentUserId)) {
+            showTagNotification(data.tag, true);
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        } else if (data.tagger_id === parseInt(currentUserId)) {
+            showTagNotification(data.tag, false);
+            if (navigator.vibrate) navigator.vibrate(100);
+        }
+    });
+
+    socket.on('connection_made', (data) => {
+        if (data.tagger_id === parseInt(currentUserId) || data.tagged_id === parseInt(currentUserId)) {
+            celebrateConnection();
+        }
+    });
+
+    fetch('/api/state')
+        .then(r => r.json())
+        .then(data => {
+            updateMarkers(data.people);
+            updateTagLines(data.tags);
+            updateWidget(data.people);
+        });
+}
+
+// ============ LOCATION ============
+function requestLocation() {
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.watchPosition(
+        (pos) => {
+            socket.emit('location_update', {
+                user_id: parseInt(currentUserId),
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude
+            });
+
+            if (!map._centered) {
+                map.setView([pos.coords.latitude, pos.coords.longitude], MAP_ZOOM);
+                map._centered = true;
+            }
+
+            // Auto-detect zone and suggest status
+            detectZoneAndSuggestStatus(pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => console.error('Location error:', err),
+        { enableHighAccuracy: true, maximumAge: 30000 }
+    );
+}
+
+// ============ VIBE SELECTOR ============
+function initVibeSelector() {
+    document.querySelectorAll('.vibe-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.vibe-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            socket.emit('set_vibe', {
+                user_id: parseInt(currentUserId),
+                vibe: btn.dataset.vibe
+            });
+        });
+    });
+}
+
+// ============ STATUS BAR ============
+let currentStatus = '';
+let statusPanelOpen = false;
+let lastDetectedZone = null;
+
+function initStatusBar() {
+    const toggle = document.getElementById('statusToggle');
+    const panel = document.getElementById('statusPanel');
+    const input = document.getElementById('statusInput');
+    const saveBtn = document.getElementById('statusSave');
+    const clearBtn = document.getElementById('statusClear');
+
+    toggle.addEventListener('click', () => {
+        statusPanelOpen = !statusPanelOpen;
+        panel.classList.toggle('visible', statusPanelOpen);
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.status-bar') && statusPanelOpen) {
+            statusPanelOpen = false;
+            panel.classList.remove('visible');
+        }
+    });
+
+    // Suggestion buttons
+    document.querySelectorAll('.status-suggestion').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setStatus(btn.dataset.status);
+            statusPanelOpen = false;
+            panel.classList.remove('visible');
+        });
+    });
+
+    // Custom input
+    saveBtn.addEventListener('click', () => {
+        const text = input.value.trim();
+        if (text) {
+            setStatus(text);
+            input.value = '';
+            statusPanelOpen = false;
+            panel.classList.remove('visible');
+        }
+    });
+
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            saveBtn.click();
+        }
+    });
+
+    // Clear status
+    clearBtn.addEventListener('click', () => {
+        setStatus('');
+        statusPanelOpen = false;
+        panel.classList.remove('visible');
+    });
+}
+
+function setStatus(status) {
+    currentStatus = status;
+    updateStatusDisplay(status);
+    socket.emit('set_status', {
+        user_id: parseInt(currentUserId),
+        status: status
+    });
+}
+
+function updateStatusDisplay(status) {
+    const emoji = document.getElementById('statusEmoji');
+    const text = document.getElementById('statusText');
+
+    if (status) {
+        // Extract emoji if present
+        const emojiMatch = status.match(/^(\p{Emoji})/u);
+        emoji.textContent = emojiMatch ? emojiMatch[1] : '💬';
+        text.textContent = status;
+        text.classList.add('has-status');
+    } else {
+        emoji.textContent = '💬';
+        text.textContent = 'Set your status...';
+        text.classList.remove('has-status');
+    }
+}
+
+// Auto-detect zone and suggest status
+function detectZoneAndSuggestStatus(latitude, longitude) {
+    let closestZone = null;
+    let closestDist = Infinity;
+
+    HEAT_ZONES.forEach(zone => {
+        const distance = getDistance(latitude, longitude, zone.lat, zone.lng);
+        if (distance <= zone.baseRadius + 10 && distance < closestDist) {
+            closestDist = distance;
+            closestZone = zone;
+        }
+    });
+
+    // Only suggest if zone changed and no custom status
+    if (closestZone && closestZone.id !== lastDetectedZone) {
+        lastDetectedZone = closestZone?.id;
+
+        // Only auto-suggest if no status set
+        if (!currentStatus) {
+            const suggestions = {
+                coffee: '☕ Grabbing coffee',
+                lunch: '🍽️ At lunch',
+                social: '🎉 Socializing',
+                focus: '💻 At the office'
+            };
+
+            const suggestedStatus = suggestions[closestZone.type];
+            if (suggestedStatus) {
+                showStatusSuggestion(suggestedStatus, closestZone.name);
+            }
+        }
+    } else if (!closestZone && lastDetectedZone) {
+        lastDetectedZone = null;
+        // Could suggest "On the move" here
+        if (!currentStatus) {
+            const hour = new Date().getHours();
+            if (hour >= 11 && hour <= 14) {
+                showStatusSuggestion('🚶 On the move', 'lunch time');
+            }
+        }
+    }
+}
+
+function showStatusSuggestion(status, context) {
+    const toggle = document.getElementById('statusToggle');
+
+    // Add suggestion indicator
+    toggle.classList.add('has-suggestion');
+    toggle.dataset.suggestion = status;
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => {
+        toggle.classList.remove('has-suggestion');
+    }, 10000);
+}
+
+// Initialize status bar after DOM ready
+setTimeout(initStatusBar, 100);
+
+// ============ ZONE POPUP ============
+function showZonePopup(zone, people) {
+    const style = ZONE_STYLES[zone.type];
+    const otherPeople = people.filter(p => p.id !== parseInt(currentUserId));
+
+    if (otherPeople.length === 0) return;
+
+    const bubble = document.getElementById('userBubble');
+    const point = map.latLngToContainerPoint([zone.lat, zone.lng]);
+
+    // Show all avatars
+    const avatars = people.map(p => p.avatar_emoji || '😀').join(' ');
+    document.getElementById('bubbleAvatar').textContent = avatars;
+
+    // Build team breakdown
+    const teamBreakdown = {};
+    people.forEach(p => {
+        const t = p.team || 'Other';
+        teamBreakdown[t] = (teamBreakdown[t] || 0) + 1;
+    });
+    const teamBadges = Object.entries(teamBreakdown).map(([team, count]) => {
+        const ts = TEAM_COLORS[team] || TEAM_COLORS['Other'];
+        return `<span class="bubble-team" style="background: ${ts.color}">${count} ${ts.emoji} ${team}</span>`;
+    }).join('');
+
+    // Build name text
+    let nameText;
+    if (people.length === 1) {
+        const person = people[0];
+        const team = person.team || '';
+        const teamStyle = TEAM_COLORS[team] || TEAM_COLORS['Other'];
+        nameText = `${person.name.split(' ')[0]} ${team ? `<span class="bubble-team" style="background: ${teamStyle.color}">${teamStyle.emoji} ${team}</span>` : ''}`;
+    } else if (people.length === 2) {
+        nameText = `${people.map(p => p.name.split(' ')[0]).join(' & ')}<div class="bubble-teams-row">${teamBadges}</div>`;
+    } else {
+        nameText = `${people.length} people at ${zone.name}<div class="bubble-teams-row">${teamBadges}</div>`;
+    }
+    document.getElementById('bubbleName').innerHTML = nameText;
+
+    // Join first other person in the group
+    const joinBtn = document.getElementById('joinBtn');
+    joinBtn.textContent = `⚡ Join ${otherPeople.length > 1 ? 'them' : otherPeople[0].name.split(' ')[0]}`;
+    joinBtn.onclick = () => {
+        socket.emit('tag_user', {
+            tagger_id: parseInt(currentUserId),
+            tagged_id: otherPeople[0].id
+        });
+        bubble.classList.remove('visible');
+    };
+
+    bubble.style.left = point.x + 'px';
+    bubble.style.top = (point.y - 100) + 'px';
+    bubble.classList.add('visible');
+
+    setTimeout(() => {
+        map.once('click', () => bubble.classList.remove('visible'));
+    }, 100);
+}
+
+// ============ USER BUBBLE ============
+function showUserBubble(person, marker) {
+    const bubble = document.getElementById('userBubble');
+    const latlng = marker.getLatLng();
+    const point = map.latLngToContainerPoint(latlng);
+
+    const team = person.team || '';
+    const teamStyle = TEAM_COLORS[team] || TEAM_COLORS['Other'];
+
+    document.getElementById('bubbleAvatar').textContent = person.avatar_emoji || '😀';
+    document.getElementById('bubbleName').innerHTML = `
+        ${person.name.split(' ')[0]}
+        ${team ? `<span class="bubble-team" style="background: ${teamStyle.color}">${teamStyle.emoji} ${team}</span>` : ''}
+    `;
+
+    document.getElementById('joinBtn').onclick = () => {
+        socket.emit('tag_user', {
+            tagger_id: parseInt(currentUserId),
+            tagged_id: person.id
+        });
+        bubble.classList.remove('visible');
+    };
+
+    bubble.style.left = point.x + 'px';
+    bubble.style.top = (point.y - 100) + 'px';
+    bubble.classList.add('visible');
+
+    setTimeout(() => {
+        map.once('click', () => bubble.classList.remove('visible'));
+    }, 100);
+}
+
+// ============ TAG NOTIFICATIONS ============
+function showTagNotification(tag, incoming) {
+    const overlay = document.getElementById('tagOverlay');
+    const emoji = document.getElementById('tagEmoji');
+    const message = document.getElementById('tagMessage');
+
+    if (incoming) {
+        emoji.textContent = tag.tagger?.avatar_emoji || '⚡';
+        message.textContent = `${tag.tagger?.name?.split(' ')[0]} is coming!`;
+    } else {
+        emoji.textContent = '🏃‍♂️';
+        message.textContent = `On your way to ${tag.tagged?.name?.split(' ')[0]}!`;
+    }
+
+    overlay.classList.add('visible');
+    updateTagTimer(tag);
+}
+
+function updateTagTimer(tag) {
+    if (timerInterval) clearInterval(timerInterval);
+
+    const timerEl = document.getElementById('tagTimer');
+    const overlay = document.getElementById('tagOverlay');
+
+    timerInterval = setInterval(() => {
+        const remaining = tag.seconds_remaining || 0;
+        const mins = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        timerEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        tag.seconds_remaining = Math.max(0, remaining - 1);
+
+        if (remaining <= 0) {
+            clearInterval(timerInterval);
+            overlay.classList.remove('visible');
+        }
+    }, 1000);
+
+    overlay.classList.add('visible');
+}
+
+function hideTagOverlay() {
+    document.getElementById('tagOverlay').classList.remove('visible');
+    if (timerInterval) clearInterval(timerInterval);
+}
+
+// ============ CELEBRATION ============
+function celebrateConnection() {
+    const overlay = document.getElementById('celebrationOverlay');
+    overlay.classList.add('visible');
+
+    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+
+    setTimeout(() => overlay.classList.remove('visible'), 3000);
+}
+
+window.addEventListener('beforeunload', () => {
+    if (socket) socket.emit('user_inactive', { user_id: parseInt(currentUserId) });
+});
+
+// ============ ENERGY WIDGET ============
+let widgetExpanded = false;
+let lastUpdateTime = Date.now();
+
+function initWidget() {
+    const widget = document.getElementById('energyWidget');
+    const collapsed = document.getElementById('widgetCollapsed');
+    const closeBtn = document.getElementById('widgetClose');
+
+    collapsed.addEventListener('click', () => {
+        if (!widgetExpanded) {
+            widget.classList.add('expanded');
+            widgetExpanded = true;
+        }
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        widget.classList.remove('expanded');
+        widgetExpanded = false;
+    });
+
+    // Close on map click
+    map.on('click', () => {
+        if (widgetExpanded) {
+            widget.classList.remove('expanded');
+            widgetExpanded = false;
+        }
+    });
+}
+
+function updateWidget(people) {
+    lastUpdateTime = Date.now();
+    const dotsContainer = document.getElementById('widgetDots');
+    const summaryEl = document.getElementById('widgetSummary');
+    const zonesContainer = document.getElementById('widgetZones');
+    const timeEl = document.getElementById('widgetTime');
+
+    // Count people by zone type AND by team
+    const typeCounts = { social: 0, coffee: 0, lunch: 0, focus: 0 };
+    const teamCounts = {};
+    const zoneData = {};
+
+    HEAT_ZONES.forEach(zone => {
+        zoneData[zone.id] = { zone, people: [] };
+    });
+
+    people.forEach(person => {
+        if (!person.latitude || !person.longitude) return;
+
+        // Count by team
+        const team = person.team || 'Other';
+        teamCounts[team] = (teamCounts[team] || 0) + 1;
+
+        HEAT_ZONES.forEach(zone => {
+            const distance = getDistance(person.latitude, person.longitude, zone.lat, zone.lng);
+            if (distance <= zone.baseRadius + 15) {
+                typeCounts[zone.type]++;
+                zoneData[zone.id].people.push(person);
+            }
+        });
+    });
+
+    // Build dots visualization (collapsed view) - now by TEAM colors!
+    const totalPeople = people.filter(p => p.latitude && p.longitude).length;
+    let dotsHtml = '';
+
+    // Show dots for each team
+    Object.entries(teamCounts).forEach(([team, count]) => {
+        const teamStyle = TEAM_COLORS[team] || TEAM_COLORS['Other'];
+        for (let i = 0; i < Math.min(count, 3); i++) {
+            dotsHtml += `<span class="widget-dot" style="background: ${teamStyle.color}" title="${team}"></span>`;
+        }
+        if (count > 3) {
+            dotsHtml += `<span class="widget-dot-more" style="color: ${teamStyle.color}">+${count - 3}</span>`;
+        }
+    });
+
+    if (totalPeople === 0) {
+        dotsHtml = '<span class="widget-dot-empty">· · ·</span>';
+    }
+
+    dotsContainer.innerHTML = dotsHtml;
+
+    // Summary text
+    let summary = '';
+    if (totalPeople === 0) {
+        summary = 'Quiet';
+    } else if (totalPeople <= 2) {
+        summary = 'A few around';
+    } else if (totalPeople <= 5) {
+        summary = 'Getting busy';
+    } else {
+        summary = 'Buzzing! 🔥';
+    }
+    summaryEl.textContent = summary;
+
+    // Build expanded view with TEAM breakdown
+    let zonesHtml = '';
+    const typeOrder = ['social', 'coffee', 'lunch', 'focus'];
+
+    typeOrder.forEach(type => {
+        const style = ZONE_STYLES[type];
+        const count = typeCounts[type];
+
+        // Get zones of this type with people and their team breakdown
+        const activeZones = HEAT_ZONES
+            .filter(z => z.type === type && zoneData[z.id].people.length > 0)
+            .map(z => {
+                const zonePeople = zoneData[z.id].people;
+                const teams = {};
+                zonePeople.forEach(p => {
+                    const t = p.team || 'Other';
+                    teams[t] = (teams[t] || 0) + 1;
+                });
+                return { name: z.name, count: zonePeople.length, teams, people: zonePeople };
+            });
+
+        let heatLevel = count === 0 ? 'cold' : count <= 2 ? 'warm' : 'hot';
+        let tempEmoji = count === 0 ? style.coldEmoji : count <= 2 ? style.warmEmoji : style.hotEmoji;
+
+        // Build team dots for this zone type
+        let teamDotsHtml = '';
+        if (activeZones.length > 0) {
+            const allTeams = {};
+            activeZones.forEach(z => {
+                Object.entries(z.teams).forEach(([t, c]) => {
+                    allTeams[t] = (allTeams[t] || 0) + c;
+                });
+            });
+            teamDotsHtml = Object.entries(allTeams).map(([team, c]) => {
+                const ts = TEAM_COLORS[team] || TEAM_COLORS['Other'];
+                return `<span class="wz-dot" style="background: ${ts.color}" title="${team}"></span>`;
+            }).join('');
+        }
+
+        // Build detail text showing team breakdown
+        let detailText = 'No one here';
+        if (activeZones.length > 0) {
+            const parts = [];
+            activeZones.forEach(z => {
+                const teamList = Object.entries(z.teams)
+                    .map(([t, c]) => {
+                        const ts = TEAM_COLORS[t] || TEAM_COLORS['Other'];
+                        return `${c} ${ts.emoji}`;
+                    }).join(' ');
+                parts.push(`${z.name}: ${teamList}`);
+            });
+            detailText = parts.join(' · ');
+        }
+
+        zonesHtml += `
+            <div class="widget-zone-row ${heatLevel}">
+                <div class="widget-zone-icon" style="background: ${style.color}">${style.icon}</div>
+                <div class="widget-zone-info">
+                    <div class="widget-zone-name">${style.name}</div>
+                    <div class="widget-zone-detail">${detailText}</div>
+                </div>
+                <div class="widget-zone-count">
+                    <span class="widget-zone-dots">${teamDotsHtml}</span>
+                    <span class="widget-zone-temp">${tempEmoji}</span>
+                </div>
+            </div>
+        `;
+    });
+
+    zonesContainer.innerHTML = zonesHtml;
+    timeEl.textContent = 'Updated just now';
+
+    // Update time display periodically
+    updateWidgetTime();
+}
+
+function updateWidgetTime() {
+    const timeEl = document.getElementById('widgetTime');
+    const seconds = Math.floor((Date.now() - lastUpdateTime) / 1000);
+
+    if (seconds < 10) {
+        timeEl.textContent = 'Updated just now';
+    } else if (seconds < 60) {
+        timeEl.textContent = `Updated ${seconds}s ago`;
+    } else {
+        const mins = Math.floor(seconds / 60);
+        timeEl.textContent = `Updated ${mins}m ago`;
+    }
+}
+
+// Update time display every 10 seconds
+setInterval(updateWidgetTime, 10000);
+
+// Initialize widget after map
+setTimeout(initWidget, 500);
+</script>
+{% endblock %}

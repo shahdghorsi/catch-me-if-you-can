@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Check In - Catch Me If You Can{% endblock %}
+
+{% block content %}
+<div class="checkin-container">
+    <div class="checkin-card">
+        <h2>🏃‍♂️ Ready to Play?</h2>
+        <p class="subtitle">Check in and let your colleagues find you!</p>
+
+        {% if error %}
+        <div class="error-message">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" class="checkin-form">
+            <div class="form-group">
+                <label for="email">Work Email</label>
+                <input type="email" id="email" name="email" placeholder="name.surname@virginmediao2.co.uk" required>
+                <p class="input-hint">Use your Virgin Media O2 email</p>
+            </div>
+
+            <div class="form-group">
+                <label>Your Avatar</label>
+                <div class="avatar-preview">
+                    <div class="emoji-avatar" id="emojiPreview">🎲</div>
+                    <p class="avatar-hint">You'll get a random fun emoji!</p>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="team">Your Team</label>
+                <select id="team" name="team" class="team-select" required>
+                    <option value="">Select your team...</option>
+                    <option value="Data Science">🔬 Data Science</option>
+                    <option value="Data Products">📦 Data Products</option>
+                    <option value="Data Platforms">⚙️ Data Platforms</option>
+                </select>
+                <p class="input-hint">This helps people discover colleagues from different teams!</p>
+            </div>
+
+            <div class="form-group location-permission">
+                <div class="permission-info">
+                    <span class="icon">📍</span>
+                    <div>
+                        <strong>Location Permission Required</strong>
+                        <p>We'll ask for location access after you check in to track where you are.</p>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">Check In →</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Cycle through random emojis for fun preview
+    const emojis = ['😀', '😎', '🤓', '🥳', '🤠', '🦊', '🐱', '🐶', '🦁', '🐸', '🐵', '🤖', '👽', '🎃', '🦄', '🐼', '🐨', '🐯', '🦋', '🐙', '🦖', '🦕', '🐲', '🧙', '🧛', '🦸', '🦹', '🧚', '🤡'];
+    const preview = document.getElementById('emojiPreview');
+    let index = Math.floor(Math.random() * emojis.length);
+
+    setInterval(() => {
+        index = (index + 1) % emojis.length;
+        preview.textContent = emojis[index];
+        preview.style.transform = 'scale(1.2)';
+        setTimeout(() => preview.style.transform = 'scale(1)', 150);
+    }, 800);
+</script>
+{% endblock %}
