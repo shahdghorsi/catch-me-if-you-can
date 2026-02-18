@@ -84,6 +84,7 @@ gcloud run deploy $SERVICE_NAME \
     --port=8080 \
     --timeout=300 \
     --session-affinity \
+    --ingress=internal-and-cloud-load-balancing \
     --no-allow-unauthenticated \
     --set-env-vars="FLASK_DEBUG=false,SECRET_KEY=$(openssl rand -hex 32)"
 

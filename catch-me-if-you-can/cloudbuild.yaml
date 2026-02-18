@@ -39,8 +39,10 @@ steps:
       - '3'
       - '--port'
       - '8080'
-      - '--allow-unauthenticated=false'
+      - '--no-allow-unauthenticated'
       - '--session-affinity'
+      - '--ingress'
+      - 'internal-and-cloud-load-balancing'
       - '--timeout'
       - '300'
 
