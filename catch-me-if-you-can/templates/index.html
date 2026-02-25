@@ -19,6 +19,16 @@
     <!-- Map -->
     <div id="map"></div>
 
+    <!-- Search Bar -->
+    <div class="search-bar" id="searchBar">
+        <div class="search-input-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="searchInput" placeholder="Search people...">
+            <button class="search-clear" id="searchClear">×</button>
+        </div>
+        <div class="search-results" id="searchResults"></div>
+    </div>
+
     <!-- Status Bar -->
     <div class="status-bar" id="statusBar">
         <div class="status-toggle" id="statusToggle">
@@ -40,6 +50,30 @@
                 <button class="status-suggestion" data-status="🎧 Music mode">🎧 Music mode</button>
             </div>
             <button class="status-clear" id="statusClear">Clear status</button>
+        </div>
+    </div>
+
+    <!-- Floor selector -->
+    <div class="floor-selector" id="floorSelector">
+        <button class="floor-toggle" id="floorToggle">
+            <span class="floor-icon">🏢</span>
+            <span class="floor-label" id="floorLabel">Floor</span>
+        </button>
+        <div class="floor-panel" id="floorPanel">
+            <div class="floor-panel-title">Select your floor</div>
+            <div class="floor-buttons" id="floorButtons">
+                <button class="floor-btn" data-floor="9">9</button>
+                <button class="floor-btn" data-floor="8">8</button>
+                <button class="floor-btn" data-floor="7">7</button>
+                <button class="floor-btn" data-floor="6">6</button>
+                <button class="floor-btn" data-floor="5">5</button>
+                <button class="floor-btn" data-floor="4">4</button>
+                <button class="floor-btn" data-floor="3">3</button>
+                <button class="floor-btn" data-floor="2">2</button>
+                <button class="floor-btn" data-floor="1">1</button>
+                <button class="floor-btn" data-floor="0">G</button>
+            </div>
+            <button class="floor-clear" id="floorClear">Not in office</button>
         </div>
     </div>
 
@@ -166,9 +200,11 @@ const ZONE_STYLES = {
 // Paddington Heat Zones
 const HEAT_ZONES = [
     { id: 'office', name: 'Office', lat: 51.5170, lng: -0.1780, type: 'focus', baseRadius: 50 },
+    { id: 'frequency', name: 'Frequency Coffee', lat: 51.5185, lng: -0.1795, type: 'coffee', baseRadius: 25 },
+    { id: 'heist_bank', name: 'Heist Bank', lat: 51.5183, lng: -0.1798, type: 'social', baseRadius: 30 },
+    { id: 'canal_food_market', name: 'Canal Food Market', lat: 51.5184, lng: -0.1792, type: 'lunch', baseRadius: 30 },
     { id: 'mad_bishop', name: 'Mad Bishop', lat: 51.5167, lng: -0.1769, type: 'social', baseRadius: 30 },
     { id: 'victoria', name: 'The Victoria', lat: 51.5152, lng: -0.1743, type: 'social', baseRadius: 30 },
-    { id: 'starbucks', name: 'Starbucks', lat: 51.5155, lng: -0.1760, type: 'coffee', baseRadius: 25 },
     { id: 'costa', name: 'Costa', lat: 51.5165, lng: -0.1735, type: 'coffee', baseRadius: 25 },
     { id: 'pret', name: 'Pret', lat: 51.5160, lng: -0.1765, type: 'lunch', baseRadius: 25 },
     { id: 'wagamama', name: 'Wagamama', lat: 51.5175, lng: -0.1788, type: 'lunch', baseRadius: 30 },
@@ -184,6 +220,7 @@ let markers = {};
 let heatZones = {};
 let tagLines = {};
 let timerInterval = null;
+let allPeople = [];
 
 const urlParams = new URLSearchParams(window.location.search);
 currentUserId = urlParams.get('user_id');
@@ -198,6 +235,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initHeatZones();
     initSocket();
     initVibeSelector();
+    initFloorSelector();
+    initSearch();
     requestLocation();
 });
 
@@ -211,6 +250,136 @@ function initMap() {
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 20
     }).addTo(map);
+}
+
+// ============ SEARCH ============
+function initSearch() {
+    const searchInput = document.getElementById('searchInput');
+    const searchClear = document.getElementById('searchClear');
+    const searchResults = document.getElementById('searchResults');
+
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim().toLowerCase();
+
+        if (query.length === 0) {
+            searchResults.classList.remove('visible');
+            searchClear.classList.remove('visible');
+            clearSearchHighlight();
+            return;
+        }
+
+        searchClear.classList.add('visible');
+
+        const results = allPeople.filter(person =>
+            person.name.toLowerCase().includes(query)
+        );
+
+        renderSearchResults(results, query);
+    });
+
+    searchClear.addEventListener('click', () => {
+        searchInput.value = '';
+        searchResults.classList.remove('visible');
+        searchClear.classList.remove('visible');
+        clearSearchHighlight();
+    });
+
+    // Close search when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-bar')) {
+            searchResults.classList.remove('visible');
+        }
+    });
+
+    searchInput.addEventListener('focus', () => {
+        if (searchInput.value.trim().length > 0) {
+            searchResults.classList.add('visible');
+        }
+    });
+}
+
+function renderSearchResults(results, query) {
+    const searchResults = document.getElementById('searchResults');
+
+    if (results.length === 0) {
+        searchResults.innerHTML = '<div class="search-no-results">No one found</div>';
+        searchResults.classList.add('visible');
+        return;
+    }
+
+    const html = results.map(person => {
+        const zone = person.current_zone || 'Unknown location';
+        const avatar = person.avatar_emoji || '😀';
+        const floor = person.floor;
+        const floorText = floor !== null && floor !== undefined
+            ? (floor === 0 ? 'Ground floor' : `Floor ${floor}`)
+            : '';
+        const locationText = floorText ? `${floorText} • ${zone}` : zone;
+        const highlightedName = person.name.replace(
+            new RegExp(`(${query})`, 'gi'),
+            '<strong>$1</strong>'
+        );
+
+        return `
+            <div class="search-result-item" data-person-id="${person.id}">
+                <div class="search-result-avatar">${avatar}</div>
+                <div class="search-result-info">
+                    <div class="search-result-name">${highlightedName}</div>
+                    <div class="search-result-location">${locationText}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    searchResults.innerHTML = html;
+    searchResults.classList.add('visible');
+
+    // Add click handlers
+    searchResults.querySelectorAll('.search-result-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const personId = parseInt(item.dataset.personId);
+            focusOnPerson(personId);
+            searchResults.classList.remove('visible');
+        });
+    });
+}
+
+function focusOnPerson(personId) {
+    const person = allPeople.find(p => p.id === personId);
+    if (!person || !person.latitude || !person.longitude) return;
+
+    // Pan to person
+    map.setView([person.latitude, person.longitude], 18, {
+        animate: true,
+        duration: 0.5
+    });
+
+    // Highlight the marker
+    highlightMarker(personId);
+}
+
+function highlightMarker(personId) {
+    clearSearchHighlight();
+
+    const marker = markers[personId];
+    if (!marker) return;
+
+    const el = marker.getElement();
+    if (el) {
+        el.classList.add('search-highlight');
+        // Pulse animation
+        el.style.animation = 'pulse-highlight 1s ease-in-out 3';
+    }
+}
+
+function clearSearchHighlight() {
+    Object.values(markers).forEach(marker => {
+        const el = marker.getElement();
+        if (el) {
+            el.classList.remove('search-highlight');
+            el.style.animation = '';
+        }
+    });
 }
 
 // ============ ENERGY ZONES ============
@@ -427,6 +596,11 @@ function createAvatarMarker(person, isMe = false) {
     // Team badge on avatar
     const teamBadgeHtml = team ? `<div class="avatar-team-badge" style="background: ${teamColor}">${teamStyle.emoji}</div>` : '';
 
+    // Floor badge (shows on left side)
+    const floor = person.floor;
+    const floorText = floor === 0 ? 'G' : floor;
+    const floorBadgeHtml = (floor !== null && floor !== undefined) ? `<div class="avatar-floor-badge">${floorText}</div>` : '';
+
     const html = `
         <div class="avatar-marker ${isMe ? 'is-me' : ''}" style="--vibe-color: ${vibeColor}; --team-color: ${teamColor}">
             ${statusHtml}
@@ -435,6 +609,7 @@ function createAvatarMarker(person, isMe = false) {
                 <span class="avatar-emoji">${person.avatar_emoji || '😀'}</span>
             </div>
             ${teamBadgeHtml}
+            ${floorBadgeHtml}
             ${isMe ? '<div class="avatar-me-indicator">YOU</div>' : ''}
         </div>
     `;
@@ -480,7 +655,14 @@ function updateMarkers(people) {
             animateDropIn(marker);
         }
 
-        if (isMe) currentUser = person;
+        if (isMe) {
+            currentUser = person;
+            // Update floor selector to match user's current floor
+            if (typeof updateFloorDisplay === 'function') {
+                updateFloorDisplay(person.floor);
+                currentFloor = person.floor;
+            }
+        }
     });
 
     // Update heat zones based on people positions
@@ -547,6 +729,7 @@ function initSocket() {
     });
 
     socket.on('state_update', (data) => {
+        allPeople = data.people || [];
         updateMarkers(data.people);
         updateTagLines(data.tags);
         updateWidget(data.people);
@@ -575,6 +758,7 @@ function initSocket() {
     fetch('/api/state')
         .then(r => r.json())
         .then(data => {
+            allPeople = data.people || [];
             updateMarkers(data.people);
             updateTagLines(data.tags);
             updateWidget(data.people);
@@ -618,6 +802,73 @@ function initVibeSelector() {
             });
         });
     });
+}
+
+// ============ FLOOR SELECTOR ============
+let currentFloor = null;
+let floorPanelOpen = false;
+
+function initFloorSelector() {
+    const toggle = document.getElementById('floorToggle');
+    const panel = document.getElementById('floorPanel');
+    const clearBtn = document.getElementById('floorClear');
+
+    toggle.addEventListener('click', () => {
+        floorPanelOpen = !floorPanelOpen;
+        panel.classList.toggle('visible', floorPanelOpen);
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.floor-selector') && floorPanelOpen) {
+            floorPanelOpen = false;
+            panel.classList.remove('visible');
+        }
+    });
+
+    // Floor buttons
+    document.querySelectorAll('.floor-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const floor = parseInt(btn.dataset.floor);
+            setFloor(floor);
+            floorPanelOpen = false;
+            panel.classList.remove('visible');
+        });
+    });
+
+    // Clear floor
+    clearBtn.addEventListener('click', () => {
+        setFloor(null);
+        floorPanelOpen = false;
+        panel.classList.remove('visible');
+    });
+}
+
+function setFloor(floor) {
+    currentFloor = floor;
+    updateFloorDisplay(floor);
+    socket.emit('set_floor', {
+        user_id: parseInt(currentUserId),
+        floor: floor
+    });
+}
+
+function updateFloorDisplay(floor) {
+    const label = document.getElementById('floorLabel');
+    const toggle = document.getElementById('floorToggle');
+
+    // Update button state
+    document.querySelectorAll('.floor-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.floor) === floor);
+    });
+
+    if (floor !== null && floor !== undefined) {
+        label.textContent = floor === 0 ? 'Ground' : `Floor ${floor}`;
+        toggle.classList.add('active');
+    } else {
+        label.textContent = 'Floor';
+        toggle.classList.remove('active');
+    }
 }
 
 // ============ STATUS BAR ============

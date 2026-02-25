@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Check Your Email - Catch Me If You Can{% endblock %}
+
+{% block content %}
+<div class="checkin-container">
+    <div class="checkin-card">
+        <div class="sent-icon">📧</div>
+        <h2>Check Your Email!</h2>
+        <p class="subtitle">We've sent a magic link to:</p>
+        <p class="email-display">{{ email }}</p>
+        <p class="hint">Click the link in the email to sign in. It expires in 15 minutes.</p>
+
+        <div class="sent-tips">
+            <p><strong>Didn't get the email?</strong></p>
+            <ul>
+                <li>Check your spam/junk folder</li>
+                <li>Make sure you used your work email</li>
+                <li><a href="{{ url_for('checkin') }}">Try again</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<style>
+.sent-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.email-display {
+    background: var(--color-card);
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: var(--color-accent);
+    margin: 20px 0;
+}
+
+.hint {
+    color: var(--color-text-muted);
+    font-size: 14px;
+}
+
+.sent-tips {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-border);
+    text-align: left;
+    font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+.sent-tips ul {
+    margin-top: 10px;
+    padding-left: 20px;
+}
+
+.sent-tips li {
+    margin: 8px 0;
+}
+
+.sent-tips a {
+    color: var(--color-accent);
+}
+</style>
+{% endblock %}

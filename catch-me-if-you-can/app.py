@@ -1,10 +1,13 @@
 import os
 import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 from flask_socketio import SocketIO, emit
 
-from models import db, User, TagRequest, VIBE_AVAILABLE
+from models import db, User, TagRequest, MagicLink, VIBE_AVAILABLE
 from geo_utils import haversine_distance
 
 # Initialize Flask app
@@ -78,6 +81,7 @@ def index():
 
 def validate_work_email(email):
     import re
+    # Requires format: name.surname@virginmediao2.co.uk
     pattern = r'^[a-zA-Z]+\.[a-zA-Z]+@virginmediao2\.co\.uk$'
     return re.match(pattern, email) is not None
 
@@ -86,6 +90,58 @@ def name_from_email(email):
     local_part = email.split('@')[0]
     parts = local_part.split('.')
     return ' '.join(part.capitalize() for part in parts)
+
+
+def send_magic_link_email(email, token, base_url):
+    """Send magic link email to user."""
+    smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+    smtp_port = int(os.environ.get('SMTP_PORT', 587))
+    smtp_user = os.environ.get('SMTP_USER', '')
+    smtp_pass = os.environ.get('SMTP_PASS', '')
+    from_email = os.environ.get('FROM_EMAIL', smtp_user)
+
+    if not smtp_user or not smtp_pass:
+        print(f"[DEV MODE] Magic link for {email}: {base_url}/verify/{token}")
+        return True  # Dev mode - just log the link
+
+    verify_url = f"{base_url}/verify/{token}"
+    name = name_from_email(email).split()[0]
+
+    html = f"""
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; background: #f5f5f5;">
+        <div style="max-width: 500px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+            <h1 style="margin: 0 0 20px; font-size: 28px;">🏃‍♂️ Hey {name}!</h1>
+            <p style="color: #666; font-size: 16px; line-height: 1.6;">
+                Click the button below to sign in to <strong>Catch Me If You Can</strong> and let your colleagues find you!
+            </p>
+            <a href="{verify_url}" style="display: inline-block; margin: 30px 0; padding: 16px 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 16px;">
+                Sign In →
+            </a>
+            <p style="color: #999; font-size: 14px;">
+                This link expires in 15 minutes.<br>
+                If you didn't request this, just ignore this email.
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = '🔐 Your sign-in link for Catch Me If You Can'
+    msg['From'] = from_email
+    msg['To'] = email
+    msg.attach(MIMEText(html, 'html'))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(from_email, email, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+        return False
 
 
 @app.route('/checkin', methods=['GET', 'POST'])
@@ -103,25 +159,61 @@ def checkin():
         if not team:
             return render_template('checkin.html', error="Please select your team")
 
-        existing_user = User.query.filter_by(email=email).first()
-
-        if existing_user:
-            existing_user.is_active = True
-            existing_user.last_seen = datetime.utcnow()
-            existing_user.team = team  # Update team in case they changed
-            db.session.commit()
-            socketio.emit('user_dropped_in', existing_user.to_dict())
-            return redirect(url_for('index', user_id=existing_user.id))
-
-        name = name_from_email(email)
-        user = User(email=email, name=name, avatar_emoji=get_random_emoji(), team=team, is_active=True)
-        db.session.add(user)
+        # Create magic link
+        magic_link = MagicLink(email=email, team=team)
+        db.session.add(magic_link)
         db.session.commit()
 
-        socketio.emit('user_dropped_in', user.to_dict())
-        return redirect(url_for('index', user_id=user.id))
+        # Send email
+        base_url = request.host_url.rstrip('/')
+        if send_magic_link_email(email, magic_link.token, base_url):
+            return render_template('checkin_sent.html', email=email)
+        else:
+            return render_template('checkin.html', error="Failed to send email. Please try again.")
 
     return render_template('checkin.html')
+
+
+@app.route('/verify/<token>')
+def verify_magic_link(token):
+    """Verify magic link and log user in."""
+    magic_link = MagicLink.query.filter_by(token=token).first()
+
+    if not magic_link:
+        return render_template('verify_error.html', error="Invalid link. Please request a new one.")
+
+    if magic_link.used:
+        return render_template('verify_error.html', error="This link has already been used. Please request a new one.")
+
+    if magic_link.is_expired:
+        return render_template('verify_error.html', error="This link has expired. Please request a new one.")
+
+    # Mark link as used
+    magic_link.used = True
+    db.session.commit()
+
+    email = magic_link.email
+    team = magic_link.team
+
+    # Find or create user
+    existing_user = User.query.filter_by(email=email).first()
+
+    if existing_user:
+        existing_user.is_active = True
+        existing_user.last_seen = datetime.utcnow()
+        if team:
+            existing_user.team = team
+        db.session.commit()
+        socketio.emit('user_dropped_in', existing_user.to_dict())
+        return redirect(url_for('index', user_id=existing_user.id))
+
+    name = name_from_email(email)
+    user = User(email=email, name=name, avatar_emoji=get_random_emoji(), team=team, is_active=True)
+    db.session.add(user)
+    db.session.commit()
+
+    socketio.emit('user_dropped_in', user.to_dict())
+    return redirect(url_for('index', user_id=user.id))
 
 
 @app.route('/api/state')
@@ -233,6 +325,24 @@ def handle_set_status(data):
         user.status = status[:50] if status else None
         db.session.commit()
         broadcast_state()
+
+
+@socketio.on('set_floor')
+def handle_set_floor(data):
+    """Set user's current floor in the office."""
+    user_id = data.get('user_id')
+    floor = data.get('floor')
+
+    if not user_id:
+        return
+
+    user = User.query.get(user_id)
+    if user:
+        # Validate floor (1-9 or None to clear)
+        if floor is None or (isinstance(floor, int) and 1 <= floor <= 9):
+            user.floor = floor
+            db.session.commit()
+            broadcast_state()
 
 
 @socketio.on('tag_user')

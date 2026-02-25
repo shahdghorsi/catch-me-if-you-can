@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Link Error - Catch Me If You Can{% endblock %}
+
+{% block content %}
+<div class="checkin-container">
+    <div class="checkin-card">
+        <div class="error-icon">😕</div>
+        <h2>Oops!</h2>
+        <p class="error-message">{{ error }}</p>
+        <a href="{{ url_for('checkin') }}" class="btn-primary">Request New Link →</a>
+    </div>
+</div>
+
+<style>
+.error-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.error-message {
+    color: var(--color-text-muted);
+    font-size: 16px;
+    margin: 20px 0 30px;
+}
+
+.btn-primary {
+    display: inline-block;
+    padding: 14px 32px;
+    background: var(--gradient-primary);
+    color: white;
+    text-decoration: none;
+    border-radius: 25px;
+    font-weight: 600;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-primary:hover {
+    transform: scale(1.05);
+    box-shadow: var(--shadow-glow);
+}
+</style>
+{% endblock %}

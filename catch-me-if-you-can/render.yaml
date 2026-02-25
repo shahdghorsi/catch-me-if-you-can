@@ -12,3 +12,19 @@ services:
         generateValue: true
       - key: FLASK_DEBUG
         value: "false"
+      # Gmail SMTP settings - configure in Render dashboard
+      # SMTP_HOST: smtp.gmail.com
+      # SMTP_PORT: 587
+      # SMTP_USER: your-email@gmail.com
+      # SMTP_PASS: your-app-password (not regular password)
+      # FROM_EMAIL: your-email@gmail.com
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: FROM_EMAIL
+        sync: false

@@ -1,5 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
+import secrets
 
 db = SQLAlchemy()
 
@@ -21,6 +22,7 @@ class User(db.Model):
     team = db.Column(db.String(50), nullable=True)
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
+    floor = db.Column(db.Integer, nullable=True)
     vibe = db.Column(db.String(20), default=VIBE_AVAILABLE)
     status = db.Column(db.String(50), nullable=True)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
@@ -35,6 +37,7 @@ class User(db.Model):
             'team': self.team or '',
             'latitude': self.latitude,
             'longitude': self.longitude,
+            'floor': self.floor,
             'vibe': self.vibe or VIBE_AVAILABLE,
             'status': self.status or '',
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
@@ -77,3 +80,32 @@ class TagRequest(db.Model):
     @property
     def is_expired(self):
         return datetime.utcnow() > self.expires_at if self.expires_at else True
+
+
+class MagicLink(db.Model):
+    """Magic link for email verification."""
+
+    __tablename__ = 'magic_links'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(100), nullable=False)
+    token = db.Column(db.String(64), unique=True, nullable=False)
+    team = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime)
+    used = db.Column(db.Boolean, default=False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        if not self.expires_at:
+            self.expires_at = datetime.utcnow() + timedelta(minutes=15)
+
+    @property
+    def is_expired(self):
+        return datetime.utcnow() > self.expires_at if self.expires_at else True
+
+    @property
+    def is_valid(self):
+        return not self.used and not self.is_expired
