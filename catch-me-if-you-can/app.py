@@ -82,7 +82,10 @@ def index():
 
 def validate_work_email(email):
     import re
-    # Requires format: name.surname@virginmediao2.co.uk
+    # Requires format: name.surname@virginmediao2.co.uk OR allow test email
+    test_email = os.environ.get('TEST_EMAIL', '')
+    if test_email and email.lower() == test_email.lower():
+        return True
     pattern = r'^[a-zA-Z]+\.[a-zA-Z]+@virginmediao2\.co\.uk$'
     return re.match(pattern, email) is not None
 
@@ -90,6 +93,8 @@ def validate_work_email(email):
 def name_from_email(email):
     local_part = email.split('@')[0]
     parts = local_part.split('.')
+    if len(parts) == 1:
+        return parts[0].capitalize()
     return ' '.join(part.capitalize() for part in parts)
 
 
