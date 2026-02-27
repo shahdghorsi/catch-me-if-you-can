@@ -12,10 +12,8 @@ services:
         generateValue: true
       - key: FLASK_DEBUG
         value: "false"
-      # Gmail SMTP settings - configure in Render dashboard
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
+      # Resend email settings - configure in Render dashboard
+      - key: RESEND_API_KEY
         sync: false
       - key: FROM_EMAIL
         sync: false
