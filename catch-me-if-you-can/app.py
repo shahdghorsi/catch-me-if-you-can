@@ -3,7 +3,7 @@ monkey.patch_all()
 
 import os
 import random
-import resend
+import requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 from flask_socketio import SocketIO, emit
@@ -99,18 +99,17 @@ def name_from_email(email):
 
 
 def send_magic_link_email(email, token, base_url):
-    """Send magic link email to user via Resend."""
-    resend_api_key = os.environ.get('RESEND_API_KEY', '')
-    from_email = os.environ.get('FROM_EMAIL', 'onboarding@resend.dev')
+    """Send magic link email to user via Brevo."""
+    brevo_api_key = os.environ.get('BREVO_API_KEY', '')
+    from_email = os.environ.get('FROM_EMAIL', '')
+    from_name = os.environ.get('FROM_NAME', 'Catch Me If You Can')
 
     verify_url = f"{base_url}/verify/{token}"
     name = name_from_email(email).split()[0]
 
-    if not resend_api_key:
+    if not brevo_api_key or not from_email:
         print(f"[DEV MODE] Magic link for {email}: {verify_url}")
         return True  # Dev mode - just log the link
-
-    resend.api_key = resend_api_key
 
     html = f"""
     <html>
@@ -133,12 +132,22 @@ def send_magic_link_email(email, token, base_url):
     """
 
     try:
-        resend.Emails.send({
-            "from": from_email,
-            "to": [email],
-            "subject": "🔐 Your sign-in link for Catch Me If You Can",
-            "html": html
-        })
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": brevo_api_key,
+                "Content-Type": "application/json"
+            },
+            json={
+                "sender": {"name": from_name, "email": from_email},
+                "to": [{"email": email, "name": name}],
+                "subject": "🔐 Your sign-in link for Catch Me If You Can",
+                "htmlContent": html
+            }
+        )
+        if response.status_code >= 400:
+            print(f"Failed to send email: {response.text}")
+            return False
         return True
     except Exception as e:
         print(f"Failed to send email: {e}")

@@ -12,8 +12,12 @@ services:
         generateValue: true
       - key: FLASK_DEBUG
         value: "false"
-      # Resend email settings - configure in Render dashboard
-      - key: RESEND_API_KEY
+      # Brevo email settings - configure in Render dashboard
+      - key: BREVO_API_KEY
         sync: false
       - key: FROM_EMAIL
+        sync: false
+      - key: FROM_NAME
+        sync: false
+      - key: TEST_EMAIL
         sync: false
