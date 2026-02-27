@@ -1,8 +1,6 @@
 import os
 import random
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import resend
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 from flask_socketio import SocketIO, emit
@@ -93,19 +91,18 @@ def name_from_email(email):
 
 
 def send_magic_link_email(email, token, base_url):
-    """Send magic link email to user."""
-    smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
-    smtp_port = int(os.environ.get('SMTP_PORT', 587))
-    smtp_user = os.environ.get('SMTP_USER', '')
-    smtp_pass = os.environ.get('SMTP_PASS', '')
-    from_email = os.environ.get('FROM_EMAIL', smtp_user)
-
-    if not smtp_user or not smtp_pass:
-        print(f"[DEV MODE] Magic link for {email}: {base_url}/verify/{token}")
-        return True  # Dev mode - just log the link
+    """Send magic link email to user via Resend."""
+    resend_api_key = os.environ.get('RESEND_API_KEY', '')
+    from_email = os.environ.get('FROM_EMAIL', 'onboarding@resend.dev')
 
     verify_url = f"{base_url}/verify/{token}"
     name = name_from_email(email).split()[0]
+
+    if not resend_api_key:
+        print(f"[DEV MODE] Magic link for {email}: {verify_url}")
+        return True  # Dev mode - just log the link
+
+    resend.api_key = resend_api_key
 
     html = f"""
     <html>
@@ -127,17 +124,13 @@ def send_magic_link_email(email, token, base_url):
     </html>
     """
 
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = '🔐 Your sign-in link for Catch Me If You Can'
-    msg['From'] = from_email
-    msg['To'] = email
-    msg.attach(MIMEText(html, 'html'))
-
     try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(from_email, email, msg.as_string())
+        resend.Emails.send({
+            "from": from_email,
+            "to": [email],
+            "subject": "🔐 Your sign-in link for Catch Me If You Can",
+            "html": html
+        })
         return True
     except Exception as e:
         print(f"Failed to send email: {e}")
